@@ -1,1 +1,8 @@
 grpc/*
+tsc
+tsd
+*.o
+*.pb.cc
+*.pb.h
+*.pb.o
+.*
