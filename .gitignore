@@ -5,4 +5,3 @@ tsd
 *.pb.cc
 *.pb.h
 *.pb.o
-.*
