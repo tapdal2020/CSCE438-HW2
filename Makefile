@@ -39,10 +39,10 @@ vpath %.proto $(PROTOS_PATH)
 all: system-check tsc tsd
 
 tsc: ts.pb.o ts.grpc.pb.o tsc.o
-	$(CXX) $^ $(LDFLAGS) -o $@
+	$(CXX) $^ $(LDFLAGS) -o bin/$@
 
 tsd: ts.pb.o ts.grpc.pb.o tsd.o
-	$(CXX) $^ $(LDFLAGS) -o $@
+	$(CXX) $^ $(LDFLAGS) -o bin/$@
 
 .PRECIOUS: %.grpc.pb.cc
 %.grpc.pb.cc: %.proto
