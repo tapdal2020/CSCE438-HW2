@@ -15,18 +15,17 @@ using grpc::Status;
 
 class Client : public IClient
 {
-public:
-	Client(const std::string& hname,
-           const std::string& uname,
-           const std::string& p)
-	:hostname(hname), username(uname), port(p) {}
+    public:
+	    Client(const std::string& hname,
+               const std::string& uname,
+               const std::string& p)
+	    :hostname(hname), username(uname), port(p) {}
 	
     protected:
-  		virtual std::string SayHello();
-
         virtual int connectTo();
         virtual IReply processCommand(std::string& input);
         virtual void processTimeline();
+
     private:
         std::string hostname;
         std::string username;
@@ -67,47 +66,41 @@ int main(int argc, char** argv) {
     return 0;
 }
 
-std::string Client::SayHello() {
-	// Data we are sending to the server.
-	HelloRequest request;
-	request.set_name(username);
+int Client::connectTo()
+{
+	// ------------------------------------------------------------
+    // In this function, you are supposed to create a stub so that
+    // you can call service methods in the processCommand/processTimeline
+    // functions. That is, the stub should be accessible when you want
+    // to call any service methods in those functions.
+	// ------------------------------------------------------------
 
-    // Container for the data we expect from the server.
-    HelloReply reply;
+    // Connect to the server
+    stub_ = TSN::NewStub(std::shared_ptr<Channel>(
+    					 grpc::CreateChannel(hostname + ":" + port, 
+    					 grpc::InsecureChannelCredentials())));
+    
+    // Data we are sending to the server
+    AddUserRequest request;
+    request.set_username(username);
+    
+    // Structure for the data we expect to get back from the server
+    AddUserReply reply;
 
     // Context for the client. It could be used to convey extra information to
     // the server and/or tweak certain RPC behaviors.
     ClientContext context;
 
     // The actual RPC.
-    Status status = stub_->SayHello(&context, request, &reply);
+    Status status = stub_->AddUser(&context, request, &reply);
 
     // Act upon its status.
-    if (status.ok()) {
-      	return reply.message();
+    if (status.ok() && (IStatus) reply.status() == IStatus::SUCCESS) {
+      	return 1;
     } 
 	else {
-      	std::cout << status.error_code() << ": " << status.error_message()
-				<< std::endl;
-      	return "RPC failed";
+      	return -1;
     }
-}
-
-int Client::connectTo()
-{
-	// ------------------------------------------------------------
-    // In this function, you are supposed to create a stub so that
-    // you call service methods in the processCommand/porcessTimeline
-    // functions. That is, the stub should be accessible when you want
-    // to call any service methods in those functions.
-    // I recommend you to have the stub as
-    // a member variable in your own Client class.
-    // Please refer to gRpc tutorial how to create a stub.
-	// ------------------------------------------------------------
-    stub_ = TSN::NewStub(std::shared_ptr<Channel>(
-    					 grpc::CreateChannel(hostname + ":" + port, 
-    					 grpc::InsecureChannelCredentials())));
-    return 1; // return 1 if success, otherwise return -1
 }
 
 IReply Client::processCommand(std::string& input)

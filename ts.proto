@@ -18,16 +18,16 @@ option objc_class_prefix = "HLW";
 
 // The social network service definition.
 service TSN {
-  // Sends a greeting (TEMPORARY)
-  rpc SayHello (HelloRequest) returns (HelloReply) {}
+  // Registers a new user
+  rpc AddUser (AddUserRequest) returns (AddUserReply) {}
 }
 
 // The request message containing the user's name.
-message HelloRequest {
-  string name = 1;
+message AddUserRequest {
+  string username = 1;
 }
 
-// The response message containing the greetings
-message HelloReply {
-  string message = 1;
+// The response message containing the status (success or failure)
+message AddUserReply {
+  int32 status = 1;
 }

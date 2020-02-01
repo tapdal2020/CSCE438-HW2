@@ -55,8 +55,6 @@ class IClient
         /*
          * Pure virtual functions to be implemented by students
          */
-	virtual std::string SayHello() = 0;
-
 
         virtual int connectTo() = 0;
         virtual IReply processCommand(std::string& cmd) = 0;
@@ -81,12 +79,6 @@ void IClient::run()
     }
     displayTitle();
     while (1) {
-
-	// Hello World Test
-	std::string greeting = SayHello();
-	std::cout << "Greeter received: " << greeting << std::endl;
-
-
         std::string cmd = getCommand();
         IReply reply = processCommand(cmd);
         displayCommandReply(cmd, reply);

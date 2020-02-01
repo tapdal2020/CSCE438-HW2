@@ -19,6 +19,9 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <vector>
+#include <algorithm>
+#include <regex>
 
 #include <grpc++/grpc++.h>
 
@@ -31,20 +34,41 @@ using grpc::Status;
 
 // Logic and data behind the server's behavior.
 class TSNServiceImpl final : public TSN::Service {
-  Status SayHello(ServerContext* context, const HelloRequest* request,
-                  HelloReply* reply) override;
+    Status AddUser(ServerContext* context, const AddUserRequest* request,
+                   AddUserReply* reply) override;
+    public:
+      std::vector<std::string> users();
 };
 
-Status TSNServiceImpl::SayHello(ServerContext* context, const HelloRequest* request,
-								HelloReply* reply) {
-	std::string prefix("Hello ");
-	reply->set_message(prefix + request->name());
-	return Status::OK;
+Status TSNServiceImpl::AddUser(ServerContext* context, const AddUserRequest* request,
+								AddUserReply* reply) {
+    // Make sure username contains only valid characters
+    regex pattern("[a-z1-9\_\.\-]+");
+    if (!regex_match(request->username(), pattern))
+    {
+        // Return invalid username
+        reply->set_status(3);
+        return Status::OK;
+    }
+    else if (std::find(users.begin(), users.end(), request->username()) != users.end())
+    {
+        // Return username already exists
+	      reply->set_status(1);
+        return Status::OK;
+    }
+    else
+    {
+        users.push_back(request->username())
+        // TODO: WRITE TO DATA FILE FOR PERSISTENCE
+        reply->set_status(0);
+	      return Status::OK;
+    }
 }
 
 void RunServer() {
   std::string server_address("0.0.0.0:3010");
   TSNServiceImpl service;
+  // TODO: READ EXISTING DATA FILES FOR PERSISTENCE
 
   ServerBuilder builder;
   // Listen on the given address without any authentication mechanism.
