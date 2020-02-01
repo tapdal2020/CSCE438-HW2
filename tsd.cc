@@ -37,13 +37,13 @@ class TSNServiceImpl final : public TSN::Service {
     Status AddUser(ServerContext* context, const AddUserRequest* request,
                    AddUserReply* reply) override;
     public:
-      std::vector<std::string> users();
+      std::vector<std::string> users;
 };
 
 Status TSNServiceImpl::AddUser(ServerContext* context, const AddUserRequest* request,
 								AddUserReply* reply) {
     // Make sure username contains only valid characters
-    regex pattern("[a-z1-9\_\.\-]+");
+    std::regex pattern("[A-Za-z1-9\\_\\.\\-]+");
     if (!regex_match(request->username(), pattern))
     {
         // Return invalid username
@@ -58,7 +58,7 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const AddUserRequest* req
     }
     else
     {
-        users.push_back(request->username())
+        users.push_back(request->username());
         // TODO: WRITE TO DATA FILE FOR PERSISTENCE
         reply->set_status(0);
 	      return Status::OK;
