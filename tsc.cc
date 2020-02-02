@@ -3,6 +3,7 @@
 //#include <thread>
 //#include <vector>
 //#include <string>
+#include <sstream>
 #include <unistd.h>
 #include <grpc++/grpc++.h>
 #include "client.h"
@@ -81,11 +82,11 @@ int Client::connectTo()
     					 grpc::InsecureChannelCredentials())));
     
     // Data we are sending to the server
-    AddUserRequest request;
+    UserRequest request;
     request.set_username(username);
     
     // Structure for the data we expect to get back from the server
-    AddUserReply reply;
+    UserReply reply;
 
     // Context for the client. It could be used to convey extra information to
     // the server and/or tweak certain RPC behaviors.
@@ -120,6 +121,84 @@ IReply Client::processCommand(std::string& input)
 	// - JOIN/LEAVE and "<username>" are separated by one space.
 	// ------------------------------------------------------------
 	
+	
+	IReply ire;
+	
+	ClientContext context;
+	Status status;
+	
+	std::stringstream ss(input);
+    std::string command;
+    ss >> command;
+    
+    if (command == "FOLLOW") {
+    	FollowUserRequest request;
+    	UserReply reply;		
+		request.set_username(username);
+		
+    	std::string userToFollow;
+    	ss >> userToFollow;
+    	request.set_user_to_follow(userToFollow);
+    		
+    	status = stub_->FollowUser(&context, request, &reply);
+    	if (status.ok()) {
+    		ire.comm_status = (IStatus) reply.status();
+    	}
+    	else {
+    		ire.comm_status = IStatus::FAILURE_UNKNOWN;
+    	}
+    }
+    else if (command == "UNFOLLOW") {
+    	UnfollowUserRequest request;
+    	UserReply reply;
+    	request.set_username(username);	
+    	
+    	std::string userToUnfollow;
+    	ss >> userToUnfollow;
+    	request.set_user_to_unfollow(userToUnfollow);
+    		
+    	status = stub_->UnfollowUser(&context, request, &reply);
+    	if (status.ok()) {
+    		ire.comm_status = (IStatus) reply.status();
+    	}
+    	else {
+    		ire.comm_status = IStatus::FAILURE_UNKNOWN;
+    	}    	    
+    }
+    else if (command == "LIST") {
+		UserRequest request;
+		ListUsersReply reply;
+		request.set_username(username);
+		
+    	status = stub_->ListUsers(&context, request, &reply);
+    	if (status.ok()) {
+    		ire.comm_status = (IStatus) reply.status();
+    	}
+    	else {
+    		ire.comm_status = IStatus::FAILURE_UNKNOWN;
+    	}
+    	
+    	std::stringstream all_users(reply.all_users());
+    	std::string user;
+    	
+    	if (reply.all_users() != "") {
+    		while (std::getline(all_users, user, '\n')) {
+    			ire.all_users.push_back(user);
+    		}
+    	}
+    	
+    	std::stringstream following_users(reply.followed_users());
+    	
+    	if (reply.followed_users() != "") {
+    		while (std::getline(following_users, user, '\n')) {
+    			ire.following_users.push_back(user);
+    		}
+    	}
+    }
+    else {
+    	ire.comm_status = FAILURE_UNKNOWN;
+    }
+		
     // ------------------------------------------------------------
 	// GUIDE 2:
 	// Then, you should create a variable of IReply structure
@@ -151,7 +230,6 @@ IReply Client::processCommand(std::string& input)
     // "following_users" member variable of IReply.
 	// ------------------------------------------------------------
     
-    IReply ire;
     return ire;
 }
 
