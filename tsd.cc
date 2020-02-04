@@ -45,7 +45,6 @@ struct User {
 	std::string username;
 	std::vector<Post> posts;
 	std::vector<User*> followed_users;
-	std::vector<time_t> last_read_post_time; // parallel to followed_users indicating the last
 	User(std::string _username) : username(_username) {}
 };
 
@@ -160,7 +159,6 @@ Status TSNServiceImpl::FollowUser(ServerContext* context, const FollowUserReques
 	}
 	
 	pos->followed_users.push_back(&*follow_pos);
-	pos->last_read_post_time.push_back(time(NULL));
 	
 	reply->set_status(0);
 	return Status::OK;							  
@@ -184,7 +182,6 @@ Status TSNServiceImpl::UnfollowUser(ServerContext* context, const UnfollowUserRe
 	for (int i = 0; i < pos->followed_users.size(); i++) {
 		if (pos->followed_users[i]->username == request->user_to_unfollow()) {
 			pos->followed_users.erase(begin(pos->followed_users) + i);
-			pos->last_read_post_time.erase(begin(pos->last_read_post_time) + i);
 			found = true;
 			break;
 		}
