@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <regex>
 #include <fstream>
+#include <queue>
 
 #include <grpc++/grpc++.h>
 
@@ -42,10 +43,11 @@ struct Post {
 
 // Struct to represent the user, consisting of a username, posts, and followed users
 struct User {
+	bool active;
 	std::string username;
-	std::vector<Post> posts;
-	std::vector<User*> followed_users;
-	User(std::string _username) : username(_username) {}
+	std::queue<Post> posts;
+	std::vector<std::string> followed_users;
+	User(std::string _username) : username(_username), active(false) { }
 };
 
 // Logic and data behind the server's behavior.
@@ -79,18 +81,41 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
         return Status::OK;
     }
     
-    // Make sure username is not taken
-    else if (std::find_if(begin(users), end(users), [&](const User &u) { return u.username == request->username(); }) != end(users))
+    // Make sure username is not taken by an active user
+    auto user_pos = std::find_if(begin(users), end(users), [&](const User &u) { return u.username == request->username(); });
+    if (user_pos != end(users) && user_pos->active)
     {
-        // Return username already exists
+        // Return username already taken by active user
 	    reply->set_status(1);
         return Status::OK;
     }
-    // Username is valid and available
-    else
+    // Username already exists but is inactive 
+    else if (user_pos != end(users))
+    {     
+    	user_pos->active = true;
+    	
+        // Read existing data from file
+        infile.open("data/users/" + request->username() + ".txt");
+  		if (infile) {
+  			std::cout << "Found existing user file for " << request->username() << "\n"; 
+			std::cout << "Followed users:" << "\n";
+  			std::string user_to_follow;
+  			while(infile >> user_to_follow) {
+  				std::cout << user_to_follow << "\n";
+  				user_pos->followed_users.push_back(user_to_follow);
+  			}
+  			
+  			infile.close();	
+  		}
+        
+        std::cout << "Registered existing user " << request->username() << "\n";
+
+    }
+    // Username is 
+    else if (user_pos == end(users))
     {
-    	// Add username to list of users
-        users.push_back(User(request->username()));
+        User new_user(request->username());
+        new_user.active = true;
         
         // Append username to users file
         outfile.open("data/users.txt", std::ios_base::app);
@@ -100,11 +125,25 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
        	}
         outfile << request->username() << "\n";
         outfile.close();
+        
+        outfile.open("data/users/" + request->username() + ".txt");
+        if (!outfile) {
+        	std::cout << "ERROR: Could not write to users file!\n";
+        	return Status::CANCELLED;
+        }
+        outfile << request->username() << "\n";
+        outfile.close();
+        
+  		// New user, add them to list of users
+  		new_user.followed_users.push_back(request->username());
+  		users.push_back(new_user);	
+  		
+        
         std::cout << "Registered new user " << request->username() << "\n";
-
-        reply->set_status(0);
-	    return Status::OK;
     }
+ 
+    reply->set_status(0);
+    return Status::OK;
 }
 
 Status TSNServiceImpl::ListUsers(ServerContext* context, const UserRequest* request,
@@ -112,19 +151,21 @@ Status TSNServiceImpl::ListUsers(ServerContext* context, const UserRequest* requ
 	reply->set_followed_users("");
 	reply->set_all_users("");
 	
+	// Make sure user making request is registered
 	auto pos = std::find_if(begin(users), end(users), [&](const User &u) { return u.username == request->username(); });
-	if (pos == end(users))
-	{
+	if (pos == end(users)) {
 		reply->set_status(2);
 		return Status::OK;
 	}
 	
+	// Go through all users
 	for (User user : users) {
 		reply->set_all_users(reply->all_users() + user.username + "\n");	
 	}
 	
-	for (User* user : pos->followed_users) {
-		reply->set_followed_users(reply->followed_users() + user->username + "\n");
+	// Go through all followed users
+	for (std::string user : pos->followed_users) {
+		reply->set_followed_users(reply->followed_users() + user + "\n");
 	}
 	
 	reply->set_status(0);
@@ -135,30 +176,43 @@ Status TSNServiceImpl::FollowUser(ServerContext* context, const FollowUserReques
 								  UserReply* reply) {
 	
 	if (request->username() == request->user_to_follow()) {
-		reply->set_status(4);
+		reply->set_status(1);
 		return Status::OK;
 	}
 	
+	// Make sure the username making the request is registered
 	auto pos = std::find_if(begin(users), end(users), [&](const User &u) { return u.username == request->username(); });
 	if (pos == end(users)) {
 		reply->set_status(2);
 		return Status::OK;
 	}
 	
+	// Make sure the user to follow is also registered
 	auto follow_pos = std::find_if(begin(users), end(users), [&](const User &u) { return u.username == request->user_to_follow(); });
 	if (follow_pos == end(users)) {
-		reply->set_status(2);
+		reply->set_status(3);
 		return Status::OK;
 	}
 	
-	for (User* user : pos->followed_users) {
-		if (user->username == request->user_to_follow()) {
+	// Make sure the user to follow is not already followed by the user making the request
+	for (std::string user : pos->followed_users) {
+		if (user == request->user_to_follow()) {
 			reply->set_status(1);
 			return Status::OK;
 		}
 	}
 	
-	pos->followed_users.push_back(&*follow_pos);
+	outfile.open("data/users/" + request->username() + ".txt", std::ios_base::app);
+	if (outfile) {
+		pos->followed_users.push_back(request->user_to_follow());
+		outfile << request->user_to_follow() << "\n";
+		outfile.close();
+	}
+	else {
+		std::cout << "Error: data/users/" + request->username() + " could not be opened!\n";
+		reply->set_status(5);
+		return Status::OK;
+	}
 	
 	reply->set_status(0);
 	return Status::OK;							  
@@ -167,28 +221,45 @@ Status TSNServiceImpl::FollowUser(ServerContext* context, const FollowUserReques
 Status TSNServiceImpl::UnfollowUser(ServerContext* context, const UnfollowUserRequest* request,
 								  UserReply* reply) {
 	
+	// Check if user is attempting to unregister themselves		  
 	if (request->username() == request->user_to_unfollow()) {
-		reply->set_status(4);
-		return Status::OK;
-	}
-								  
-	auto pos = std::find_if(begin(users), end(users), [&](const User &u) { return u.username == request->username(); });
-	if (pos == end(users)) {
-		reply->set_status(2);
+		reply->set_status(3);
 		return Status::OK;
 	}
 	
+	// Check if user making request is registered
+	auto pos = std::find_if(begin(users), end(users), [&](const User &u) { return u.username == request->username(); });
+	if (pos == end(users)) {
+		reply->set_status(3);
+		return Status::OK;
+	}
+	
+	// Attempt to unfollow the user
 	bool found = false;
 	for (int i = 0; i < pos->followed_users.size(); i++) {
-		if (pos->followed_users[i]->username == request->user_to_unfollow()) {
+		if (pos->followed_users[i] == request->user_to_unfollow()) {
 			pos->followed_users.erase(begin(pos->followed_users) + i);
 			found = true;
+			
+			// Record updates on disk
+			outfile.open("data/users/" + request->username() + ".txt");
+			if (outfile) {
+				for (std::string user : pos->followed_users)
+					outfile << user << "\n";
+				outfile.close();
+			}
+			else {
+				std::cout << "Error: data/users/" + request->username() + " could not be opened!\n";
+				reply->set_status(5);
+				return Status::OK;			
+			}
 			break;
 		}
 	}
 	
+	// If the user was not found in the list of followed users
 	if (!found) {
-		reply->set_status(2);
+		reply->set_status(3);
 		return Status::OK;
 	}
 
@@ -196,14 +267,17 @@ Status TSNServiceImpl::UnfollowUser(ServerContext* context, const UnfollowUserRe
 	return Status::OK;						  
 }
 
+// Read all users from the users file, marking each as inactive until they re-register
 void TSNServiceImpl::recoverData() {
 	infile.open("data/users.txt");
 	if (infile) {
 		std::cout << "Found existing users file, importing users..\n";
-		std::string user;
-		while(std::getline(infile, user)) {
-			std::cout << "Registering new user " << user << "\n";
-			users.push_back(User(user));
+		std::string username;
+		while(std::getline(infile, username)) {
+			std::cout << "Found existing user " << username << "\n";
+			User user(username);
+			user.active = false;
+			users.push_back(user);
 		}
 		infile.close();
 	}	
