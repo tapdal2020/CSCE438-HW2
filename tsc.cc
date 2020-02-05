@@ -1,10 +1,6 @@
-//#include <iostream>
-//#include <memory>
-//#include <thread>
-//#include <vector>
-//#include <string>
 #include <sstream>
 #include <unistd.h>
+#include <thread>
 #include <grpc++/grpc++.h>
 #include "client.h"
 
@@ -12,6 +8,9 @@
 
 using grpc::Channel;
 using grpc::ClientContext;
+using grpc::ClientReader;
+using grpc::ClientReaderWriter;
+using grpc::ClientWriter;
 using grpc::Status;
 
 class Client : public IClient
@@ -194,6 +193,36 @@ IReply Client::processCommand(std::string& input)
     			ire.following_users.push_back(user);
     		}
     	}
+    }
+    else if (command == "TIMELINE") {
+    
+    	std::shared_ptr<ClientReaderWriter<PostMessage, PostMessage>> stream(stub_->ProcessTimeline(&context));
+    	
+    	//Thread used to read chat messages and send them to the server
+    	std::thread writer{[stream](std::string username) {
+    	    std::string msg;
+        	while (1) {
+        	    PostMessage p;
+        	    p.set_content(getPostMessage());
+        	    p.set_time((long int) time(NULL));
+        	    p.set_sender(username);
+        	    stream->Write(p);
+        	}
+        	stream->WritesDone();
+    	}, username};
+
+    	std::thread reader([stream]() {
+        	PostMessage p;
+        	time_t time; 
+        	while(stream->Read(&p)){
+        	  	time = p.time();
+        	    displayPostMessage(p.sender(), p.content(), time); 
+        	}
+    	});
+
+    	//Wait for the threads to finish
+    	writer.join();
+    	reader.join();
     }
     else {
     	ire.comm_status = FAILURE_UNKNOWN;

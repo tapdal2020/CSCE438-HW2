@@ -17,7 +17,7 @@
  */
 
 #include <iostream>
-#include <memory>
+#include <thread>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -32,20 +32,24 @@
 using grpc::Server;
 using grpc::ServerBuilder;
 using grpc::ServerContext;
+using grpc::ServerReader;
+using grpc::ServerReaderWriter;
+using grpc::ServerWriter;
 using grpc::Status;
 
-// Struct to represent a post to a timeline, consisting of a post time and the contents
+// Struct to represent a post to a timeline, consisting of a post time, the username of the poster, and the contents
 struct Post {
 	time_t time;
+	std::string poster;
 	std::string text;
 	Post(time_t _time, std::string _text) : time(_time), text(_text) {}
 };
 
-// Struct to represent the user, consisting of a username, posts, and followed users
+// Struct to represent the user, consisting of a username, timeline, and followed users
 struct User {
 	bool active;
 	std::string username;
-	std::queue<Post> posts;
+	std::queue<Post> timeline;
 	std::vector<std::string> followed_users;
 	User(std::string _username) : username(_username), active(false) { }
 };
@@ -60,6 +64,8 @@ class TSNServiceImpl final : public TSN::Service {
     				  UserReply* reply) override;
     Status UnfollowUser(ServerContext* context, const UnfollowUserRequest* request,
     				  UserReply* reply) override;    
+    Status ProcessTimeline(ServerContext* context, 
+            ServerReaderWriter<PostMessage, PostMessage>* stream) override;
     
     std::ifstream infile;
    	std::ofstream outfile;
@@ -265,6 +271,43 @@ Status TSNServiceImpl::UnfollowUser(ServerContext* context, const UnfollowUserRe
 
 	reply->set_status(0);
 	return Status::OK;						  
+}
+
+
+Status TSNServiceImpl::ProcessTimeline(ServerContext* context, 
+            ServerReaderWriter<PostMessage, PostMessage>* stream) {
+    
+   	std::thread reader{[stream](TSNServiceImpl* service) {
+		// Read messages from the client and write them to following users timelines (and to files in ./data/timelines for persistence)
+		
+		//TEMPORARY CODE TO PROVE TIMELINE FUNCTIONALITY
+		PostMessage p;
+    	while(stream->Read(&p)) {
+        	std::string msg = "";
+        	for (User user : service->users)
+        		msg += user.username + "\n";
+        	std::cout << "got a message from client: " << p.content() << std::endl;
+            
+        	PostMessage new_post;
+        	new_post.set_sender("server");
+        	new_post.set_content(msg);
+        	new_post.set_time((long int) time(NULL));
+        	std::cout << "returning a message to client: " << new_post.content() << std::endl;
+            
+        	stream->Write(new_post);
+    	}	
+    
+    }, this};
+
+    std::thread writer{[stream](TSNServiceImpl* service) {
+		// Constantly look for content added to the users own timeline and write it to the client
+   	}, this};
+
+   	//Wait for the threads to finish
+   	writer.join();
+    reader.join();
+
+    return Status::OK;
 }
 
 // Read all users from the users file, marking each as inactive until they re-register
