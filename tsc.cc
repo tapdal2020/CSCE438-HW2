@@ -174,7 +174,7 @@ IReply Client::processCommand(std::string& input)
     		ire.comm_status = (IStatus) reply.status();
     	}
     	else {
-    		ire.comm_status = IStatus::FAILURE_UNKNOWN;
+    		ire.comm_status = FAILURE_UNKNOWN;
     	}
     	
     	std::stringstream all_users(reply.all_users());
@@ -195,40 +195,7 @@ IReply Client::processCommand(std::string& input)
     	}
     }
     else if (command == "TIMELINE") {
-    
-    	std::shared_ptr<ClientReaderWriter<PostMessage, PostMessage>> stream(stub_->ProcessTimeline(&context));
-    	
-    	PostMessage userinfo;
-       	userinfo.set_content("");
-       	userinfo.set_time((long int) time(NULL));
-       	userinfo.set_sender(username);
-       	stream->Write(userinfo);
-    	
-    	//Thread used to read chat messages and send them to the server
-    	std::thread writer{[stream](std::string username) {
-    	    std::string msg;
-        	while (1) {
-        	    PostMessage p;
-        	    p.set_content(getPostMessage());
-        	    p.set_time((long int) time(NULL));
-        	    p.set_sender(username);
-        	    stream->Write(p);
-        	}
-        	stream->WritesDone();
-    	}, username};
-
-    	std::thread reader([stream]() {
-        	PostMessage p;
-        	time_t time; 
-        	while(stream->Read(&p)){
-        	  	time = p.time();
-        	    displayPostMessage(p.sender(), p.content(), time); 
-        	}
-    	});
-
-    	//Wait for the threads to finish
-    	writer.join();
-    	reader.join();
+    	ire.comm_status = SUCCESS;
     }
     else {
     	ire.comm_status = FAILURE_UNKNOWN;
@@ -277,7 +244,41 @@ void Client::processTimeline()
     // for both getting and displaying messages in timeline mode.
     // You should use them as you did in hw1.
 	// ------------------------------------------------------------
+    ClientContext context;
+    std::shared_ptr<ClientReaderWriter<PostMessage, PostMessage>> stream(stub_->ProcessTimeline(&context));
+    	
+    PostMessage userinfo;
+    userinfo.set_content("");
+    userinfo.set_time((long int) time(NULL));
+    userinfo.set_sender(username);
+    stream->Write(userinfo);
+    	
+ 	//Thread used to read chat messages and send them to the server
+   	std::thread writer{[stream](std::string username) {
+        std::string msg;
+       	while (1) {
+       	    PostMessage p;
+       	    p.set_content(getPostMessage());
+       	    p.set_time((long int) time(NULL));
+       	    p.set_sender(username);
+       	    stream->Write(p);
+       	}
+       	stream->WritesDone();
+    }, username};
 
+   	std::thread reader([stream]() {
+       	PostMessage p;
+       	time_t time; 
+       	while(stream->Read(&p)){
+       	  	time = p.time();
+       	    displayPostMessage(p.sender(), p.content(), time); 
+       	}
+   	});
+
+   	//Wait for the threads to finish
+   	writer.join();
+   	reader.join();
+   	
     // ------------------------------------------------------------
     // IMPORTANT NOTICE:
     //

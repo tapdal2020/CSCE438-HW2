@@ -79,7 +79,7 @@ class TSNServiceImpl final : public TSN::Service {
 Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* request,
 								UserReply* reply) {
     // Make sure username contains only valid characters
-    std::regex pattern("[A-Za-z1-9\\_\\.\\-]+");
+    std::regex pattern("[A-Za-z0-9\\_\\.\\-]+");
     if (!regex_match(request->username(), pattern))
     {
         // Return invalid username
@@ -103,8 +103,8 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
         // Read existing data from file
         std::ifstream infile{"data/users/" + request->username() + ".txt"};
   		if (infile) {
-  			std::cout << "Found existing user file for " << request->username() << "\n"; 
-			std::cout << "Followed users:" << "\n";
+  			//std::cout << "Found existing user file for " << request->username() << "\n"; 
+			//std::cout << "Followed users:" << "\n";
   			std::string user_to_follow;
   			while(infile >> user_to_follow) {
   				std::cout << user_to_follow << "\n";
@@ -120,20 +120,20 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
   		std::vector<Post> posts;
   		infile.open("data/timelines/" + request->username() + ".txt");
   		if (infile) {
-  			std::cout << "Found timeline file\n";
+  			//std::cout << "Found timeline file\n";
   			while (infile >> time >> poster >> text) 
   				posts.insert(begin(posts), Post(time, poster, text));
   			
   			for (int i = 0; i < std::min(20, (int) posts.size()); i++) {
-  				user_pos->timeline.insert(begin(user_pos->timeline), posts[i]);
-  				std::cout << "Added post\n";
+  				user_pos->timeline.push_back(posts[i]);
+  				//std::cout << "Added post\n";
   			}
   		}
   		
   		sem_init(&user_pos->mtx, 0, std::min(20, (int) posts.size()));
         
-        std::cout << "Registered existing user " << request->username() << "\n";
-        std::cout << "initial sem value = " + (int) (std::min(20, (int) posts.size())) << std::endl;
+        //std::cout << "Registered existing user " << request->username() << "\n";
+        //std::cout << "initial sem value = " + (int) (std::min(20, (int) posts.size())) << std::endl;
 
     }
     // Username is not registered
@@ -166,7 +166,7 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
   		
   		users.push_back(new_user);	
   		
-        std::cout << "Registered new user " << request->username() << "\n";
+        //std::cout << "Registered new user " << request->username() << "\n";
     }
  
     reply->set_status(0);
@@ -237,7 +237,7 @@ Status TSNServiceImpl::FollowUser(ServerContext* context, const FollowUserReques
 		outfile.close();
 	}
 	else {
-		std::cout << "Error: data/users/" + request->username() + " could not be opened!\n";
+		std::cout << "ERROR: data/users/" + request->username() + " could not be opened!\n";
 		reply->set_status(5);
 		return Status::OK;
 	}
@@ -278,7 +278,7 @@ Status TSNServiceImpl::UnfollowUser(ServerContext* context, const UnfollowUserRe
 				outfile.close();
 			}
 			else {
-				std::cout << "Error: data/users/" + request->username() + " could not be opened!\n";
+				std::cout << "ERROR: data/users/" + request->username() + " could not be opened!\n";
 				reply->set_status(5);
 				return Status::OK;			
 			}
@@ -320,8 +320,7 @@ Status TSNServiceImpl::ProcessTimeline(ServerContext* context,
 						sem_wait(&user.mtx);
 						user.timeline.pop_back();
 					}
-					user.timeline.insert(begin(user.timeline), new_post);
-					
+										
 					std::ofstream outfile;
 					outfile.open("data/timelines/" + user.username + ".txt", std::ios_base::app);
 					if (outfile) {
@@ -331,7 +330,11 @@ Status TSNServiceImpl::ProcessTimeline(ServerContext* context,
 					else {
 						std::cout << "ERROR: Could not open data/timelines/" + user.username + ".txt for writing\n";
 					}
-					sem_post(&user.mtx);
+					
+					if (user.username != username) {
+						user.timeline.insert(begin(user.timeline), new_post);
+						sem_post(&user.mtx);
+					}
 				}      	
             }
     	}	
@@ -348,15 +351,14 @@ Status TSNServiceImpl::ProcessTimeline(ServerContext* context,
         PostMessage new_post;
         
         while(true){
-        	std::cout << "Waiting on mutex for " << username << "\n";
+        	//std::cout << "Waiting on mutex for " << username << "\n";
 			sem_wait(&pos->mtx);
         	new_post.set_time(pos->timeline.front().time);
         	new_post.set_content(pos->timeline.front().text);
         	new_post.set_sender(pos->timeline.front().poster);
         	pos->timeline.erase(begin(pos->timeline));
             
-            if (new_post.sender() != username)
-        		stream->Write(new_post);				
+        	stream->Write(new_post);				
 		}
    	}, this, userinfo.sender()};
 
@@ -371,10 +373,10 @@ Status TSNServiceImpl::ProcessTimeline(ServerContext* context,
 void TSNServiceImpl::recoverData() {
 	std::ifstream infile{"data/users.txt"};
 	if (infile) {
-		std::cout << "Found existing users file, importing users..\n";
+		//std::cout << "Found existing users file, importing users..\n";
 		std::string username;
 		while(std::getline(infile, username)) {
-			std::cout << "Found existing user " << username << "\n";
+			//std::cout << "Found existing user " << username << "\n";
 			User user(username);
 			user.active = false;
 			users.push_back(user);
