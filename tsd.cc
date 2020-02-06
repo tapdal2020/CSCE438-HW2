@@ -124,17 +124,17 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
         new_user.active = true;
         
         // Append username to users file
-        outfile.open("data/users.txt", std::ios_base::app);
+        outfile.open("./data/users.txt", std::ios_base::app);
         if (!outfile) {
-        	std::cout << "ERROR: Could not write to users file!\n";
+        	std::cout << "ERROR: Could not write to data/users.txt" << std::endl;
         	return Status::CANCELLED;
        	}
         outfile << request->username() << "\n";
         outfile.close();
         
-        outfile.open("data/users/" + request->username() + ".txt");
+        outfile.open("./data/users/" + request->username() + ".txt");
         if (!outfile) {
-        	std::cout << "ERROR: Could not write to users file!\n";
+        	std::cout << "ERROR: Could not write to data/user/" << request->username() << std::endl;
         	return Status::CANCELLED;
         }
         outfile << request->username() << "\n";
