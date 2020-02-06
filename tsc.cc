@@ -198,6 +198,12 @@ IReply Client::processCommand(std::string& input)
     
     	std::shared_ptr<ClientReaderWriter<PostMessage, PostMessage>> stream(stub_->ProcessTimeline(&context));
     	
+    	PostMessage userinfo;
+       	userinfo.set_content("");
+       	userinfo.set_time((long int) time(NULL));
+       	userinfo.set_sender(username);
+       	stream->Write(userinfo);
+    	
     	//Thread used to read chat messages and send them to the server
     	std::thread writer{[stream](std::string username) {
     	    std::string msg;

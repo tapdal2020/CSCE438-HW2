@@ -24,6 +24,7 @@
 #include <regex>
 #include <fstream>
 #include <queue>
+#include <semaphore.h>
 
 #include <grpc++/grpc++.h>
 
@@ -42,14 +43,15 @@ struct Post {
 	time_t time;
 	std::string poster;
 	std::string text;
-	Post(time_t _time, std::string _text) : time(_time), text(_text) {}
+	Post(time_t _time, std::string _poster, std::string _text) : time(_time), poster(_poster), text(_text) {}
 };
 
 // Struct to represent the user, consisting of a username, timeline, and followed users
 struct User {
 	bool active;
 	std::string username;
-	std::queue<Post> timeline;
+	sem_t mtx;
+	std::vector<Post> timeline;
 	std::vector<std::string> followed_users;
 	User(std::string _username) : username(_username), active(false) { }
 };
@@ -67,8 +69,6 @@ class TSNServiceImpl final : public TSN::Service {
     Status ProcessTimeline(ServerContext* context, 
             ServerReaderWriter<PostMessage, PostMessage>* stream) override;
     
-    std::ifstream infile;
-   	std::ofstream outfile;
    	std::vector<User> users;
     
     public:
@@ -101,7 +101,7 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
     	user_pos->active = true;
     	
         // Read existing data from file
-        infile.open("data/users/" + request->username() + ".txt");
+        std::ifstream infile{"data/users/" + request->username() + ".txt"};
   		if (infile) {
   			std::cout << "Found existing user file for " << request->username() << "\n"; 
 			std::cout << "Followed users:" << "\n";
@@ -113,18 +113,38 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
   			
   			infile.close();	
   		}
+  		
+  		time_t time;
+  		std::string poster;
+  		std::string text;
+  		std::vector<Post> posts;
+  		infile.open("data/timelines/" + request->username() + ".txt");
+  		if (infile) {
+  			std::cout << "Found timeline file\n";
+  			while (infile >> time >> poster >> text) 
+  				posts.insert(begin(posts), Post(time, poster, text));
+  			
+  			for (int i = 0; i < std::min(20, (int) posts.size()); i++) {
+  				user_pos->timeline.insert(begin(user_pos->timeline), posts[i]);
+  				std::cout << "Added post\n";
+  			}
+  		}
+  		
+  		sem_init(&user_pos->mtx, 0, std::min(20, (int) posts.size()));
         
         std::cout << "Registered existing user " << request->username() << "\n";
+        std::cout << "initial sem value = " + (int) (std::min(20, (int) posts.size())) << std::endl;
 
     }
-    // Username is 
+    // Username is not registered
     else if (user_pos == end(users))
     {
         User new_user(request->username());
         new_user.active = true;
         
         // Append username to users file
-        outfile.open("../data/users.txt", std::ios_base::app);
+        std::ofstream outfile;
+        outfile.open("data/users.txt", std::ios_base::app);
         if (!outfile) {
         	std::cout << "ERROR: Could not write to data/users.txt" << std::endl;
         	return Status::CANCELLED;
@@ -132,7 +152,7 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
         outfile << request->username() << "\n";
         outfile.close();
         
-        outfile.open("../data/users/" + request->username() + ".txt");
+        outfile.open("data/users/" + request->username() + ".txt");
         if (!outfile) {
         	std::cout << "ERROR: Could not write to data/user/" << request->username() << std::endl;
         	return Status::CANCELLED;
@@ -142,9 +162,10 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
         
   		// New user, add them to list of users
   		new_user.followed_users.push_back(request->username());
+  		sem_init(&new_user.mtx, 0, 0);
+  		
   		users.push_back(new_user);	
   		
-        
         std::cout << "Registered new user " << request->username() << "\n";
     }
  
@@ -165,7 +186,7 @@ Status TSNServiceImpl::ListUsers(ServerContext* context, const UserRequest* requ
 	}
 	
 	// Go through all users
-	for (User user : users) {
+	for (User& user : users) {
 		reply->set_all_users(reply->all_users() + user.username + "\n");	
 	}
 	
@@ -208,6 +229,7 @@ Status TSNServiceImpl::FollowUser(ServerContext* context, const FollowUserReques
 		}
 	}
 	
+	std::ofstream outfile;
 	outfile.open("data/users/" + request->username() + ".txt", std::ios_base::app);
 	if (outfile) {
 		pos->followed_users.push_back(request->user_to_follow());
@@ -248,6 +270,7 @@ Status TSNServiceImpl::UnfollowUser(ServerContext* context, const UnfollowUserRe
 			found = true;
 			
 			// Record updates on disk
+			std::ofstream outfile;
 			outfile.open("data/users/" + request->username() + ".txt");
 			if (outfile) {
 				for (std::string user : pos->followed_users)
@@ -277,31 +300,65 @@ Status TSNServiceImpl::UnfollowUser(ServerContext* context, const UnfollowUserRe
 Status TSNServiceImpl::ProcessTimeline(ServerContext* context, 
             ServerReaderWriter<PostMessage, PostMessage>* stream) {
     
-   	std::thread reader{[stream](TSNServiceImpl* service) {
-		// Read messages from the client and write them to following users timelines (and to files in ./data/timelines for persistence)
-		
-		//TEMPORARY CODE TO PROVE TIMELINE FUNCTIONALITY
+    PostMessage userinfo;
+    if (!stream->Read(&userinfo)) {
+		std::cout << "ERROR: Client unexpectedly closed connection\n";
+		return Status::OK;
+	}
+    
+   	std::thread reader{[stream](TSNServiceImpl* service, std::string username) {
+		// Read messages from the client and write them to following users timelines (and to files in ../data/timelines for persistence)
+	
 		PostMessage p;
-    	while(stream->Read(&p)) {
-        	std::string msg = "";
-        	for (User user : service->users)
-        		msg += user.username + "\n";
-        	std::cout << "got a message from client: " << p.content() << std::endl;
-            
-        	PostMessage new_post;
-        	new_post.set_sender("server");
-        	new_post.set_content(msg);
-        	new_post.set_time((long int) time(NULL));
-        	std::cout << "returning a message to client: " << new_post.content() << std::endl;
-            
-        	stream->Write(new_post);
+    	while(stream->Read(&p)) {      		
+            for (User& user : service->users) {
+				auto pos = std::find_if(begin(user.followed_users), end(user.followed_users), [&](const User &u) { return u.username == username; });
+				if (pos != end(user.followed_users)) {
+				
+					Post new_post(p.time(), p.sender(), p.content());
+					while(user.timeline.size() >= 20) {
+						sem_wait(&user.mtx);
+						user.timeline.pop_back();
+					}
+					user.timeline.insert(begin(user.timeline), new_post);
+					
+					std::ofstream outfile;
+					outfile.open("data/timelines/" + user.username + ".txt", std::ios_base::app);
+					if (outfile) {
+						outfile << new_post.time << " " << new_post.poster << " " << new_post.text << "\n";
+						outfile.close();
+					}
+					else {
+						std::cout << "ERROR: Could not open data/timelines/" + user.username + ".txt for writing\n";
+					}
+					sem_post(&user.mtx);
+				}      	
+            }
     	}	
     
-    }, this};
+    }, this, userinfo.sender()};
 
-    std::thread writer{[stream](TSNServiceImpl* service) {
-		// Constantly look for content added to the users own timeline and write it to the client
-   	}, this};
+    std::thread writer{[stream](TSNServiceImpl* service, std::string username) {
+		// Constantly look for content added to the users' own timeline and write it to the client
+		auto pos = std::find_if(begin(service->users), end(service->users), [&](const User &u) { return u.username == username; });
+		if (pos == end(service->users)) {
+			return Status::OK;
+		}
+		
+        PostMessage new_post;
+        
+        while(true){
+        	std::cout << "Waiting on mutex for " << username << "\n";
+			sem_wait(&pos->mtx);
+        	new_post.set_time(pos->timeline.front().time);
+        	new_post.set_content(pos->timeline.front().text);
+        	new_post.set_sender(pos->timeline.front().poster);
+        	pos->timeline.erase(begin(pos->timeline));
+            
+            if (new_post.sender() != username)
+        		stream->Write(new_post);				
+		}
+   	}, this, userinfo.sender()};
 
    	//Wait for the threads to finish
    	writer.join();
@@ -312,7 +369,7 @@ Status TSNServiceImpl::ProcessTimeline(ServerContext* context,
 
 // Read all users from the users file, marking each as inactive until they re-register
 void TSNServiceImpl::recoverData() {
-	infile.open("data/users.txt");
+	std::ifstream infile{"data/users.txt"};
 	if (infile) {
 		std::cout << "Found existing users file, importing users..\n";
 		std::string username;
