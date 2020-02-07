@@ -1,21 +1,3 @@
-/*
- *
- * Copyright 2015 gRPC authors.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- */
-
 #include <iostream>
 #include <thread>
 #include <string>
@@ -23,7 +5,6 @@
 #include <algorithm>
 #include <regex>
 #include <fstream>
-#include <queue>
 #include <semaphore.h>
 
 #include <grpc++/grpc++.h>
@@ -46,7 +27,8 @@ struct Post {
 	Post(time_t _time, std::string _poster, std::string _text) : time(_time), poster(_poster), text(_text) {}
 };
 
-// Struct to represent the user, consisting of a username, timeline, and followed users
+// Struct to represent the user, consisting of a username, unread timeline posts, and followed users, 
+// as well as a semaphore for mutual exclusion and status flag to represent active users
 struct User {
 	bool active;
 	std::string username;
@@ -58,17 +40,28 @@ struct User {
 
 // Logic and data behind the server's behavior.
 class TSNServiceImpl final : public TSN::Service {
+	// Registers a new or returning user
     Status AddUser(ServerContext* context, const UserRequest* request,
                    UserReply* reply) override;
+                   
+    // Lists all users, as well as the users the caller is currently following
     Status ListUsers(ServerContext* context, const UserRequest* request,
     			     ListUsersReply* reply) override;
+    			     
+    // Follows a user
     Status FollowUser(ServerContext* context, const FollowUserRequest* request,
     				  UserReply* reply) override;
+    				  
+    // Unfollows a user
     Status UnfollowUser(ServerContext* context, const UnfollowUserRequest* request,
-    				  UserReply* reply) override;    
+    				  UserReply* reply) override;  
+    				  
+    // Allows the user to enter timeline mode and receive live updates,
+    // as well as provides the ability to post status messages to other users
     Status ProcessTimeline(ServerContext* context, 
             ServerReaderWriter<PostMessage, PostMessage>* stream) override;
     
+    // Data structure to hold all active users in memory
    	std::vector<User> users;
     
     public:
@@ -82,7 +75,7 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
     std::regex pattern("[A-Za-z0-9\\_\\.\\-]+");
     if (!regex_match(request->username(), pattern))
     {
-        // Return invalid username
+        // If not, return invalid username
         reply->set_status(3);
         return Status::OK;
     }
@@ -91,16 +84,16 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
     auto user_pos = std::find_if(begin(users), end(users), [&](const User &u) { return u.username == request->username(); });
     if (user_pos != end(users) && user_pos->active)
     {
-        // Return username already taken by active user
+        // If it is, return error
 	    reply->set_status(1);
         return Status::OK;
     }
-    // Username already exists but is inactive 
+    // If the username already exists but is inactive, we need to read in file data
     else if (user_pos != end(users))
     {     
     	user_pos->active = true;
     	
-        // Read existing data from file
+        // Read following information from file
         std::ifstream infile{"data/users/" + request->username() + ".txt"};
   		if (infile) {
   			//std::cout << "Found existing user file for " << request->username() << "\n"; 
@@ -114,6 +107,7 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
   			infile.close();	
   		}
   		
+  		// Populate their timeline
   		time_t time;
   		std::string poster;
   		std::string text;
@@ -133,10 +127,8 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
   		sem_init(&user_pos->mtx, 0, std::min(20, (int) posts.size()));
         
         //std::cout << "Registered existing user " << request->username() << "\n";
-        //std::cout << "initial sem value = " + (int) (std::min(20, (int) posts.size())) << std::endl;
-
     }
-    // Username is not registered
+    // If the username is not registered
     else if (user_pos == end(users))
     {
         User new_user(request->username());
@@ -152,6 +144,7 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
         outfile << request->username() << "\n";
         outfile.close();
         
+        // Also write their username to the file of users they are following
         outfile.open("data/users/" + request->username() + ".txt");
         if (!outfile) {
         	std::cout << "ERROR: Could not write to data/user/" << request->username() << std::endl;
@@ -160,10 +153,10 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
         outfile << request->username() << "\n";
         outfile.close();
         
-  		// New user, add them to list of users
   		new_user.followed_users.push_back(request->username());
   		sem_init(&new_user.mtx, 0, 0);
   		
+  		// Add them to the list of users and initialize their semaphore
   		users.push_back(new_user);	
   		
         //std::cout << "Registered new user " << request->username() << "\n";
@@ -229,6 +222,7 @@ Status TSNServiceImpl::FollowUser(ServerContext* context, const FollowUserReques
 		}
 	}
 	
+	// Re-write the file of users that are being followed, omitting the unfollowed user	
 	std::ofstream outfile;
 	outfile.open("data/users/" + request->username() + ".txt", std::ios_base::app);
 	if (outfile) {
@@ -286,7 +280,7 @@ Status TSNServiceImpl::UnfollowUser(ServerContext* context, const UnfollowUserRe
 		}
 	}
 	
-	// If the user was not found in the list of followed users
+	// If the user was not found in the list of followed users, terminate with error
 	if (!found) {
 		reply->set_status(3);
 		return Status::OK;
@@ -299,28 +293,33 @@ Status TSNServiceImpl::UnfollowUser(ServerContext* context, const UnfollowUserRe
 
 Status TSNServiceImpl::ProcessTimeline(ServerContext* context, 
             ServerReaderWriter<PostMessage, PostMessage>* stream) {
-    
+	
+	// Get user info     
     PostMessage userinfo;
     if (!stream->Read(&userinfo)) {
 		std::cout << "ERROR: Client unexpectedly closed connection\n";
 		return Status::OK;
 	}
     
+	// Read messages from the client and write them to following users timelines (and to files in ../data/timelines for persistence)
    	std::thread reader{[stream](TSNServiceImpl* service, std::string username) {
-		// Read messages from the client and write them to following users timelines (and to files in ../data/timelines for persistence)
 	
 		PostMessage p;
+		// Get post from user
     	while(stream->Read(&p)) {      		
+    		// Loop through all users and find the ones that have followed the user that just made the post
             for (User& user : service->users) {
 				auto pos = std::find_if(begin(user.followed_users), end(user.followed_users), [&](const User &u) { return u.username == username; });
 				if (pos != end(user.followed_users)) {
-				
+					
+					// Make sure the timeline doesn't exceed 20 items
 					Post new_post(p.time(), p.sender(), p.content());
 					while(user.timeline.size() >= 20) {
 						sem_wait(&user.mtx);
 						user.timeline.pop_back();
 					}
-										
+					
+					// Write the post to the following users timeline record
 					std::ofstream outfile;
 					outfile.open("data/timelines/" + user.username + ".txt", std::ios_base::app);
 					if (outfile) {
@@ -331,6 +330,7 @@ Status TSNServiceImpl::ProcessTimeline(ServerContext* context,
 						std::cout << "ERROR: Could not open data/timelines/" + user.username + ".txt for writing\n";
 					}
 					
+					// If the user isn't the one who made the post, also send them the message
 					if (user.username != username) {
 						user.timeline.insert(begin(user.timeline), new_post);
 						sem_post(&user.mtx);
@@ -350,6 +350,7 @@ Status TSNServiceImpl::ProcessTimeline(ServerContext* context,
 		
         PostMessage new_post;
         
+        // Wait for items to be added to the user's timeline, then send them to the client and remove them from the timeline
         while(true){
         	//std::cout << "Waiting on mutex for " << username << "\n";
 			sem_wait(&pos->mtx);
