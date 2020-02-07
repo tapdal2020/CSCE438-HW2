@@ -1,6 +1,7 @@
 #include <sstream>
 #include <unistd.h>
 #include <thread>
+#include <algorithm>
 #include <grpc++/grpc++.h>
 #include "client.h"
 
@@ -173,6 +174,7 @@ IReply Client::processCommand(std::string& input)
     		while (std::getline(all_users, user, '\n')) {
     			ire.all_users.push_back(user);
     		}
+	    	std::sort(begin(ire.all_users), end(ire.all_users));
     	}
     	
     	std::stringstream following_users(reply.followed_users());
@@ -181,6 +183,7 @@ IReply Client::processCommand(std::string& input)
     		while (std::getline(following_users, user, '\n')) {
     			ire.following_users.push_back(user);
     		}
+    		std::sort(begin(ire.following_users), end(ire.following_users));
     	}
     }
     // If the command was 'TIMELINE'

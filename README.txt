@@ -4,13 +4,8 @@ To compile the program, navigate to the root project directory in a bash termina
 
 Execution:
 
-The server (crsd) should be running before the client is started so the client will be able to connect to the server.
+The server (tsd) should be running before the clients are started so the clients will be able to connect to the server.
 
-1) In order to run the server, navigate to the root project directory in a bash terminal and type the command './crsd <port #>' using a valid, open port number.
+1) In order to run the server, navigate to the root project directory in a bash shell and type the command './bin/tsd' after making the project.
    
-   NOTE: The port number passed as an argument to the server is only a REQUEST for that particular port. If the port isn't available, 
-         the server will bind to the smallest available  port >= the given port # (to avoid crashes if the server could not bind to 
-         the port provided). Once started, the server will output through the command line which port it was able to bind to. 
-
-2) To run the client, first start up the server and then start the client with the command './crc <server ip> <port #>' where <server ip> is the network address (in dotted decimal notation)
-   of the server, for example '127.0.0.1' should be used if the client and server are running on the same machine. <port #> is the port number that the server has bound to.
+2) To run the clients, first start up the server and then start the client with the command './bin/tsc [-h <HOST ADDRESS>][-p <PORT #>][-u <USERNAME>]' from the root project directory. The default hostname for the client is 'localhost' and the default port number is '3010'. The default username is 'default'. If a user with the same username has registered with the server since it has started, then the server will refuse the connection. Therefore, when using multiple clients simultaneously, different usernames must be chosen for each connected client.  
