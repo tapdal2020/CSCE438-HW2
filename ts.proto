@@ -39,7 +39,7 @@ message UnfollowUserRequest {
 message ListUsersReply {
 	int32 status = 1;
 	string all_users = 2;
-	string followed_users = 3;
+	string followers = 3;
 }
 
 // The response message containing the status of an RPC (success or failure)

@@ -168,7 +168,7 @@ Status TSNServiceImpl::AddUser(ServerContext* context, const UserRequest* reques
 
 Status TSNServiceImpl::ListUsers(ServerContext* context, const UserRequest* request,
 								 ListUsersReply* reply) {
-	reply->set_followed_users("");
+	reply->set_followers("");
 	reply->set_all_users("");
 	
 	// Make sure user making request is registered
@@ -178,14 +178,13 @@ Status TSNServiceImpl::ListUsers(ServerContext* context, const UserRequest* requ
 		return Status::OK;
 	}
 	
-	// Go through all users
+	// Go through all users, adding them as well as users following the current user
 	for (User& user : users) {
 		reply->set_all_users(reply->all_users() + user.username + "\n");	
-	}
-	
-	// Go through all followed users
-	for (std::string user : pos->followed_users) {
-		reply->set_followed_users(reply->followed_users() + user + "\n");
+		auto pos = std::find_if(begin(user.followed_users), end(user.followed_users), [&](const User &u) { return u.username == request->username(); });
+		if (pos != end(user.followed_users)) {
+			reply->set_followers(reply->followers() + user.username + "\n");
+		}
 	}
 	
 	reply->set_status(0);

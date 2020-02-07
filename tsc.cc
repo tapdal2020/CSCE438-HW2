@@ -177,13 +177,13 @@ IReply Client::processCommand(std::string& input)
 	    	std::sort(begin(ire.all_users), end(ire.all_users));
     	}
     	
-    	std::stringstream following_users(reply.followed_users());
+    	std::stringstream followers(reply.followers());
     	
-    	if (reply.followed_users() != "") {
-    		while (std::getline(following_users, user, '\n')) {
-    			ire.following_users.push_back(user);
+    	if (reply.followers() != "") {
+    		while (std::getline(followers, user, '\n')) {
+    			ire.followers.push_back(user);
     		}
-    		std::sort(begin(ire.following_users), end(ire.following_users));
+    		std::sort(begin(ire.followers), end(ire.followers));
     	}
     }
     // If the command was 'TIMELINE'
