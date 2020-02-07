@@ -66,79 +66,61 @@ int main(int argc, char** argv) {
     return 0;
 }
 
+// This function establishes a connection to the server
 int Client::connectTo()
 {
-	// ------------------------------------------------------------
-    // In this function, you are supposed to create a stub so that
-    // you can call service methods in the processCommand/processTimeline
-    // functions. That is, the stub should be accessible when you want
-    // to call any service methods in those functions.
-	// ------------------------------------------------------------
-
-    // Connect to the server
+    // Create a client stub
     stub_ = TSN::NewStub(std::shared_ptr<Channel>(
     					 grpc::CreateChannel(hostname + ":" + port, 
     					 grpc::InsecureChannelCredentials())));
     
-    // Data we are sending to the server
+    // Initialize the request to send to the server
     UserRequest request;
     request.set_username(username);
     
     // Structure for the data we expect to get back from the server
     UserReply reply;
 
-    // Context for the client. It could be used to convey extra information to
-    // the server and/or tweak certain RPC behaviors.
+    // Context for the client.
     ClientContext context;
 
     // The actual RPC.
     Status status = stub_->AddUser(&context, request, &reply);
 
     // Act upon its status.
-    if (status.ok() && (IStatus) reply.status() == IStatus::SUCCESS) {
+    if (status.ok() && (IStatus) reply.status() == IStatus::SUCCESS)
       	return 1;
-    } 
-	else {
+	else
       	return -1;
-    }
 }
 
+// This function parses a given input command, sends the appropriate request to the server, 
+// and stores the results in an IReply object
 IReply Client::processCommand(std::string& input)
 {
-	// ------------------------------------------------------------
-	// GUIDE 1:
-	// In this function, you are supposed to parse the given input
-    // command and create your own message so that you call an 
-    // appropriate service method. The input command will be one
-    // of the followings:
-	//
-	// FOLLOW <username>
-	// UNFOLLOW <username>
-	// LIST
-    // TIMELINE
-	//
-	// - JOIN/LEAVE and "<username>" are separated by one space.
-	// ------------------------------------------------------------
-	
-	
 	IReply ire;
 	
 	ClientContext context;
 	Status status;
 	
+	// Parse the first word of the command from the user
 	std::stringstream ss(input);
     std::string command;
     ss >> command;
     
+    // If the command was 'FOLLOW <USER>'
     if (command == "FOLLOW") {
+    	// Initialize the request and reply objects
     	FollowUserRequest request;
     	UserReply reply;		
 		request.set_username(username);
 		
+		// Get the user to follow
     	std::string userToFollow;
     	ss >> userToFollow;
     	request.set_user_to_follow(userToFollow);
     		
+    	// Perform the RPC and get the result
     	status = stub_->FollowUser(&context, request, &reply);
     	if (status.ok()) {
     		ire.comm_status = (IStatus) reply.status();
@@ -147,15 +129,19 @@ IReply Client::processCommand(std::string& input)
     		ire.comm_status = IStatus::FAILURE_UNKNOWN;
     	}
     }
+    // If the command was 'UNFOLLOW <USER>'
     else if (command == "UNFOLLOW") {
+    	// Initialize the request and reply objects
     	UnfollowUserRequest request;
     	UserReply reply;
     	request.set_username(username);	
     	
+    	// Get the user to unfollow
     	std::string userToUnfollow;
     	ss >> userToUnfollow;
     	request.set_user_to_unfollow(userToUnfollow);
-    		
+    	
+    	// Perform the RPC and get the result
     	status = stub_->UnfollowUser(&context, request, &reply);
     	if (status.ok()) {
     		ire.comm_status = (IStatus) reply.status();
@@ -165,10 +151,12 @@ IReply Client::processCommand(std::string& input)
     	}    	    
     }
     else if (command == "LIST") {
+    	// Initialize the request and reply objects
 		UserRequest request;
 		ListUsersReply reply;
 		request.set_username(username);
 		
+		// Perform the RPC and get the result
     	status = stub_->ListUsers(&context, request, &reply);
     	if (status.ok()) {
     		ire.comm_status = (IStatus) reply.status();
@@ -177,6 +165,7 @@ IReply Client::processCommand(std::string& input)
     		ire.comm_status = FAILURE_UNKNOWN;
     	}
     	
+    	// Populate the IReply object with the response strings from the RPC
     	std::stringstream all_users(reply.all_users());
     	std::string user;
     	
@@ -194,66 +183,34 @@ IReply Client::processCommand(std::string& input)
     		}
     	}
     }
+    // If the command was 'TIMELINE'
     else if (command == "TIMELINE") {
     	ire.comm_status = SUCCESS;
     }
+    // If the command was not recognized
     else {
     	ire.comm_status = FAILURE_UNKNOWN;
     }
-		
-    // ------------------------------------------------------------
-	// GUIDE 2:
-	// Then, you should create a variable of IReply structure
-	// provided by the client.h and initialize it according to
-	// the result. Finally you can finish this function by returning
-    // the IReply.
-	// ------------------------------------------------------------
-    
-	// ------------------------------------------------------------
-    // HINT: How to set the IReply?
-    // Suppose you have "Join" service method for JOIN command,
-    // IReply can be set as follow:
-    // 
-    //     // some codes for creating/initializing parameters for
-    //     // service method
-    //     IReply ire;
-    //     grpc::Status status = stub_->Join(&context, /* some parameters */);
-    //     ire.grpc_status = status;
-    //     if (status.ok()) {
-    //         ire.comm_status = SUCCESS;
-    //     } else {
-    //         ire.comm_status = FAILURE_NOT_EXISTS;
-    //     }
-    //      
-    //      return ire;
-    // 
-    // IMPORTANT: 
-    // For the command "LIST", you should set both "all_users" and 
-    // "following_users" member variable of IReply.
-	// ------------------------------------------------------------
     
     return ire;
 }
 
+// This function processes the 'TIMELINE' function and provides the user with the 
+// ability to post to and read live updates from their timeline
 void Client::processTimeline()
 {
-	// ------------------------------------------------------------
-    // In this function, you are supposed to get into timeline mode.
-    // You may need to call a service method to communicate with
-    // the server. Use getPostMessage/displayPostMessage functions
-    // for both getting and displaying messages in timeline mode.
-    // You should use them as you did in hw1.
-	// ------------------------------------------------------------
+	// Create the client context and begin the bidirectional RPC stream
     ClientContext context;
     std::shared_ptr<ClientReaderWriter<PostMessage, PostMessage>> stream(stub_->ProcessTimeline(&context));
-    	
+    
+    // Create an initial message to send to the server containing the current user's username
     PostMessage userinfo;
     userinfo.set_content("");
     userinfo.set_time((long int) time(NULL));
     userinfo.set_sender(username);
     stream->Write(userinfo);
     	
- 	//Thread used to read chat messages and send them to the server
+ 	// This thread constantly prompts the user for input and streams it to the server
    	std::thread writer{[stream](std::string username) {
         std::string msg;
        	while (1) {
@@ -266,6 +223,7 @@ void Client::processTimeline()
        	stream->WritesDone();
     }, username};
 
+	// This thread reads timeline updates from the server and prints them to standard output
    	std::thread reader([stream]() {
        	PostMessage p;
        	time_t time; 
@@ -278,13 +236,4 @@ void Client::processTimeline()
    	//Wait for the threads to finish
    	writer.join();
    	reader.join();
-   	
-    // ------------------------------------------------------------
-    // IMPORTANT NOTICE:
-    //
-    // Once a user enter to timeline mode , there is no way
-    // to command mode. You don't have to worry about this situation,
-    // and you can terminate the client program by pressing
-    // CTRL-C (SIGINT)
-	// ------------------------------------------------------------
 }
